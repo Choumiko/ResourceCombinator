@@ -1,0 +1,9 @@
+{
+  "name": "ResourceCombinator",
+  "version": "0.0.1",
+  "title": "Resource Combinator",
+  "author": "Choumiko",
+  "homepage": "",
+  "dependencies": ["base >= 0.12.8"],
+  "description": "Combinator outputting resource amounts of a field"
+}
