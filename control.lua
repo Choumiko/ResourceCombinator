@@ -2,17 +2,11 @@ require "defines"
 
 function initGlob()
 
-  global.resourceMonitor = nil
-
   -- update every X ticks (1s = 60 ticks)
   global.updateFreq = 60
 
   if global.combinators == nil then
     global.combinators = {}
-  end
-
-  if global.fields == nil then
-    global.fields = {}
   end
 
   if global.overlayStack == nil then
@@ -97,49 +91,50 @@ function getInitialResources(entity)
   return deposits, amount
 end
 
-function isInSolidList(resource_category)
-  for _, category in ipairs (global.resourceSolidList) do
-    if resource_category == category then
-      return true
-    end
-  end
-  return false
-end
-
 function setValue(entity, name, count)
   entity.set_circuit_condition(1, {parameters={
     {signal={type = "item", name = name}, count = count, index = 1}}})
 end
 
 function updateValues()
-  for k, combinator in pairs(global.combinators) do
-    combinator.amount = 0
-    if combinator.entity.valid then
-      for i=#combinator.oreDeposits,1,-1 do
-        local deposit = combinator.oreDeposits[i]
-        if deposit and deposit.valid and deposit.amount > 0 then
-          combinator.amount = combinator.amount + deposit.amount
-        else
-          table.remove(combinator.oreDeposits, i)
+  local status, err = pcall(function()
+    for k, combinator in pairs(global.combinators) do
+      combinator.amount = 0
+      if combinator.entity.valid then
+        for i=#combinator.oreDeposits,1,-1 do
+          local deposit = combinator.oreDeposits[i]
+          if deposit and deposit.valid and deposit.amount > 0 then
+            combinator.amount = combinator.amount + deposit.amount
+          else
+            table.remove(combinator.oreDeposits, i)
+          end
         end
+        setValue(combinator.entity, combinator.resourceType, combinator.amount)
       end
-      setValue(combinator.entity, combinator.resourceType, combinator.amount)
     end
+  end)
+  if not status then
+    debugDump(err, true)
   end
 end
 
 function createCombinator(event)
-  if event.created_entity.name == "resource-combinator" then
-    event.created_entity.operable = false
-    local surface = event.created_entity.surface
-    local pos ={x = event.created_entity.position.x, y = event.created_entity.position.y}
-    local ent = surface.find_entities_filtered{area = {{pos.x - 0.01, pos.y - 0.01}, {pos.x + 0.01, pos.y + 0.01}}, type="resource"}
-    if (#ent > 0) and ((ent[1].prototype.resource_category == "basic-solid") or (isInSolidList(ent[1].prototype.resource_category))) then
-      local k = key(event.created_entity)
-      global.combinators[k] = addCombinator(ent[1])
-      global.combinators[k].entity = event.created_entity
-      setValue(event.created_entity, global.combinators[k].resourceType, global.combinators[k].amount)
+  local status, err = pcall(function()
+    if event.created_entity.name == "resource-combinator" then
+      event.created_entity.operable = false
+      local surface = event.created_entity.surface
+      local pos ={x = event.created_entity.position.x, y = event.created_entity.position.y}
+      local ent = surface.find_entities_filtered{area = {{pos.x - 0.01, pos.y - 0.01}, {pos.x + 0.01, pos.y + 0.01}}, type="resource"}
+      if (#ent > 0) and ent[1].prototype.resource_category == "basic-solid" then
+        local k = key(event.created_entity)
+        global.combinators[k] = addCombinator(ent[1])
+        global.combinators[k].entity = event.created_entity
+        setValue(event.created_entity, global.combinators[k].resourceType, global.combinators[k].amount)
+      end
     end
+  end)
+  if not status then
+    debugDump(err, true)
   end
 end
 
@@ -187,9 +182,19 @@ game.on_event(defines.events.on_tick, function(event)
   if game.tick % global.updateFreq == 11 then
     updateValues()
   end
+  if game.tick % 600 == 13 then
+    for i, overlays in pairs(global.overlayStack) do
+      if i < event.tick then
+        for _, overlay in pairs(overlays) do
+          if overlay.valid then
+            overlay.destroy()
+          end
+        end
+        global.overlayStack[i] = nil
+      end
+    end
+  end
 end)
-
-
 
 function debugDump(var, force)
   if false or force then
@@ -215,26 +220,5 @@ remote.add_interface("resource-combinator",
   {
     saveVar = function(name)
       saveVar(global, name)
-    end,
-    addResource = function(newCategory, type)
-      if type == "solid" then
-        for _, category in ipairs (global.resourceSolidList) do
-          if category == newCategory then
-            return false
-          end
-        end
-        table.insert(global.resourceSolidList, newCategory)
-        return true
-      elseif type == "liquid" then
-        for _, category in ipairs (global.resourceLiquidList) do
-          if category == newCategory then
-            return false
-          end
-        end
-        table.insert(global.resourceLiquidList, newCategory)
-        return true
-      else
-        return false
-      end
-    end,
+    end
   })
