@@ -1,4 +1,5 @@
 require "defines"
+require "util"
 
 function initGlob()
 
@@ -91,16 +92,23 @@ function getInitialResources(entity)
   return deposits, amount
 end
 
-function setValue(entity, name, count)
-  entity.set_circuit_condition(1, {parameters={
-    {signal={type = "item", name = name}, count = count, index = 1}}})
+function setValue(combinator)
+  local ent = combinator.entity
+  local para = {parameters={
+    {signal={type = "item", name = combinator.resourceType}, count = combinator.amount, index = 1}}}
+  if combinator.flow and combinator.flow > 0 then
+    combinator.flow = math.ceil(combinator.flow)
+    table.insert(para.parameters, {signal={type = "fluid", name = "crude-oil"}, count = combinator.flow, index = 2})
+    table.insert(para.parameters, {signal={type = "item", name = "pumpjack"}, count = #combinator.oilWells, index = 3})
+  end
+  ent.set_circuit_condition(1, para)
 end
 
 function updateValues()
   local status, err = pcall(function()
     for k, combinator in pairs(global.combinators) do
       combinator.amount = 0
-      if combinator.entity.valid then
+      if combinator.entity and combinator.entity.valid then
         for i=#combinator.oreDeposits,1,-1 do
           local deposit = combinator.oreDeposits[i]
           if deposit and deposit.valid and deposit.amount > 0 then
@@ -109,7 +117,19 @@ function updateValues()
             table.remove(combinator.oreDeposits, i)
           end
         end
-        setValue(combinator.entity, combinator.resourceType, combinator.amount)
+        if combinator.oilWells then
+          combinator.flow = 0
+          for i=#combinator.oilWells,1,-1 do
+            local deposit = combinator.oilWells[i]
+            if deposit and deposit.valid and deposit.amount > 0 then
+              combinator.flow = combinator.flow + deposit.amount
+            else
+              table.remove(combinator.oilWells, i)
+            end
+          end
+          combinator.flow = combinator.flow / 750
+        end
+        setValue(combinator)
       end
     end
   end)
@@ -121,25 +141,52 @@ end
 function createCombinator(event)
   local status, err = pcall(function()
     if event.created_entity.name == "resource-combinator" then
-      event.created_entity.operable = false
-      local surface = event.created_entity.surface
-      local pos ={x = event.created_entity.position.x, y = event.created_entity.position.y}
+      local entity = event.created_entity
+      entity.operable = false
+      local surface = entity.surface
+      local pos ={x = entity.position.x, y = entity.position.y}
       local range = 0.01
       local ent = surface.find_entities_filtered{area = {{pos.x - range, pos.y - range}, {pos.x + range, pos.y + range}}, type="resource"}
-      if #ent == 0 then
-        range = 1.1
-        ent = surface.find_entities_filtered{area = {{pos.x - range, pos.y - range}, {pos.x + range, pos.y + range}}, type="resource"}
+      range = 6.5
+      local ent2 = surface.find_entities_filtered{area = {{pos.x - range, pos.y - range}, {pos.x + range, pos.y + range}}, type="resource"}
+      debugDump(#ent,true)
+       debugDump(#ent2,true)
+      if #ent2 == 0 then
+        return
       end
-      if (#ent > 0) then
+      local k = key(entity)
+      global.combinators[k] = {oreDeposits = {}, amount = 0, resourceType = "", flow = 0, oilWells = {}}
+      if (#ent > 0 or #ent2 > 0) then
+        if #ent == 0 then
+          ent = ent2
+        end
+        local found = false
         for i, e in pairs(ent) do
-          if e.prototype.resource_category == "basic-solid" then
-            local k = key(event.created_entity)
-            global.combinators[k] = addCombinator(e)
-            global.combinators[k].entity = event.created_entity
-            setValue(event.created_entity, global.combinators[k].resourceType, global.combinators[k].amount)
-            break
+          if not found and e.prototype.resource_category == "basic-solid" and util.distance(e.position, entity.position) <= 1.5 then
+            local ore = addOreField(e)
+            global.combinators[k].oreDeposits = ore.oreDeposits
+            global.combinators[k].amount = ore.amount
+            global.combinators[k].resourceType = ore.resourceType
+            found = true
           end
         end
+        local tick = game.tick + 60*5
+        global.overlayStack[tick] = global.overlayStack[tick] or {}
+        for i,e in pairs(ent2) do
+          if e.prototype.resource_category == "basic-fluid" and e.name == "crude-oil" then
+            table.insert(global.combinators[k].oilWells, e)
+            global.combinators[k].flow = global.combinators[k].flow + e.amount
+            local overlay = surface.create_entity{name="rm_overlay", position = e.position}
+            overlay.minable = false
+            overlay.destructible = false
+            table.insert(global.overlayStack[tick], overlay)
+          end
+        end
+        global.combinators[k].entity = entity
+        if global.combinators[k].flow > 0 then
+          global.combinators[k].flow = global.combinators[k].flow / 750
+        end
+        setValue(global.combinators[k])
       end
     end
   end)
@@ -148,7 +195,7 @@ function createCombinator(event)
   end
 end
 
-function addCombinator(entity)
+function addOreField(entity)
   local tmpResType = entity.name
   local oreDeposit, tmpAmount = getInitialResources(entity)
   local surface = entity.surface
