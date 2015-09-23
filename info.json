@@ -4,6 +4,6 @@
   "title": "Resource Combinator",
   "author": "Choumiko",
   "homepage": "",
-  "dependencies": ["base >= 0.12.8"],
+  "dependencies": ["base >= 0.12.6"],
   "description": "Combinator outputting resource amounts of a field"
 }

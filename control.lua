@@ -124,12 +124,22 @@ function createCombinator(event)
       event.created_entity.operable = false
       local surface = event.created_entity.surface
       local pos ={x = event.created_entity.position.x, y = event.created_entity.position.y}
-      local ent = surface.find_entities_filtered{area = {{pos.x - 0.01, pos.y - 0.01}, {pos.x + 0.01, pos.y + 0.01}}, type="resource"}
-      if (#ent > 0) and ent[1].prototype.resource_category == "basic-solid" then
-        local k = key(event.created_entity)
-        global.combinators[k] = addCombinator(ent[1])
-        global.combinators[k].entity = event.created_entity
-        setValue(event.created_entity, global.combinators[k].resourceType, global.combinators[k].amount)
+      local range = 0.01
+      local ent = surface.find_entities_filtered{area = {{pos.x - range, pos.y - range}, {pos.x + range, pos.y + range}}, type="resource"}
+      if #ent == 0 then
+        range = 1.1
+        ent = surface.find_entities_filtered{area = {{pos.x - range, pos.y - range}, {pos.x + range, pos.y + range}}, type="resource"}
+      end
+      if (#ent > 0) then
+        for i, e in pairs(ent) do
+          if e.prototype.resource_category == "basic-solid" then
+            local k = key(event.created_entity)
+            global.combinators[k] = addCombinator(e)
+            global.combinators[k].entity = event.created_entity
+            setValue(event.created_entity, global.combinators[k].resourceType, global.combinators[k].amount)
+            break
+          end
+        end
       end
     end
   end)
