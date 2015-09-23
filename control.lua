@@ -140,17 +140,20 @@ end
 
 function createCombinator(event)
   local status, err = pcall(function()
-    if event.created_entity.name == "resource-combinator" then
+    if event.created_entity.name == "resource-combinator-proxy" or event.created_entity.name == "resource-combinator" then
       local entity = event.created_entity
-      entity.operable = false
-      local surface = entity.surface
+      local force = entity.force
       local pos ={x = entity.position.x, y = entity.position.y}
+      local surface = entity.surface
+      if entity.name == "resource-combinator-proxy" then
+        entity.destroy()
+        entity = surface.create_entity{name = "resource-combinator", position = pos, direction=0, force=force}
+      end
+      entity.operable = false
       local range = 0.01
       local ent = surface.find_entities_filtered{area = {{pos.x - range, pos.y - range}, {pos.x + range, pos.y + range}}, type="resource"}
-      range = 6.5
+      range = 5.5
       local ent2 = surface.find_entities_filtered{area = {{pos.x - range, pos.y - range}, {pos.x + range, pos.y + range}}, type="resource"}
-      debugDump(#ent,true)
-       debugDump(#ent2,true)
       if #ent2 == 0 then
         return
       end

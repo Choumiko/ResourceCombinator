@@ -1,5 +1,5 @@
 function copyPrototype(type, name, newName)
-  if not data.raw[type][name] then error("type "..type.." "..name.." doesn't exist") end
+  if not data.raw[type][name] then error("type "..type.." "..name.." doesn't exist", 2) end
   local p = table.deepcopy(data.raw[type][name])
   p.name = newName
   if p.minable and p.minable.result then
@@ -20,10 +20,43 @@ item.order = "b[combinators]-c[resource-combinator]"
 
 local ent = copyPrototype("constant-combinator","constant-combinator","resource-combinator")
 ent.sprite.filename = "__ResourceCombinator__/graphics/constanter.png"
-local recipe = copyPrototype("recipe","constant-combinator","resource-combinator")
+ent.minable.result = "resource-combinator-proxy"
 
-data:extend({item, ent, recipe})
-table.insert(data.raw.technology["circuit-network"].effects, {type="unlock-recipe", recipe="resource-combinator"})
+local recipe = copyPrototype("recipe","constant-combinator","resource-combinator")
+recipe.hidden = true
+recipe.enabled = false
+
+data:extend({item, ent})
+
+local proxy_i = copyPrototype("item", "small-electric-pole", "resource-combinator-proxy")
+proxy_i.icon = item.icon
+proxy_i.order = item.order
+
+local proxy_e = copyPrototype("constant-combinator", "resource-combinator", "resource-combinator-proxy")
+proxy_e.type = "electric-pole"
+proxy_e.sprite = nil
+proxy_e.circuit_wire_connection_point = nil
+proxy_e.item_slot_count = nil
+proxy_e.pictures = ent.sprite
+proxy_e.pictures.direction_count = 1
+proxy_e.maximum_wire_distance = 0
+proxy_e.supply_area_distance = 6.5
+proxy_e.connection_points = {{shadow={copper={0,0},red={0,0},green={0,0}},wire={copper={0,0},red={0,0},green={0,0}}}}
+proxy_e.radius_visualisation_picture =
+  {
+    filename = "__ResourceCombinator__/graphics/radius-visualization.png",
+    width = 12,
+    height = 12,
+    priority = "extra-high-no-scale"
+  }
+
+data:extend({recipe, proxy_i, proxy_e})
+local proxy_r = copyPrototype("recipe", "resource-combinator", "resource-combinator-proxy")
+proxy_r.hidden = false
+
+data:extend({proxy_r})
+
+table.insert(data.raw.technology["circuit-network"].effects, {type="unlock-recipe", recipe="resource-combinator-proxy"})
 
 data:extend({{
   type = "container",
