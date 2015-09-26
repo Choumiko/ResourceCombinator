@@ -13,8 +13,40 @@ function initGlob()
   if global.overlayStack == nil then
     global.overlayStack = {}
   end
+  global.nextIndex = global.nextIndex or 1
+  global.ticklist = global.ticklist or {}
 
-  global.version = "0.0.1"
+  if global.updateFreq < 30 then
+    global.updateFreq = 30
+  end
+
+  if global.version < "0.0.2" then
+    --    global.ticklist = {}
+    --    global.nextIndex = 1
+    --    for k, comb in pairs(global.combinators) do
+    --      global.ticklist[global.nextIndex] = global.ticklist[global.nextIndex] or {}
+    --      global.ticklist[global.nextIndex][k] = global.combinators[k]
+    --      global.nextIndex = (global.nextIndex + 1) % 30
+    --      if global.nextIndex == 0 then
+    --        global.nextIndex = 1
+    --      end
+    --    end
+    for k, comb in pairs(global.combinators) do
+      if comb.oilWells then
+        for _, well in pairs(comb.oilWells) do
+          local pos = well.position
+          local range = 0.25
+          local jacks = well.surface.find_entities_filtered{area = {{pos.x - range, pos.y - range}, {pos.x + range, pos.y + range}}, name="pumpjack"}
+          if #jacks == 1 then
+            addPumpjack({created_entity = jacks[1]})
+          end
+        end
+      end
+    end
+    global.version = "0.0.2"
+  end
+
+  global.version = "0.0.2"
 end
 
 game.on_init(function()
@@ -99,7 +131,11 @@ function setValue(combinator)
   if combinator.flow and combinator.flow > 0 then
     combinator.flow = math.ceil(combinator.flow)
     table.insert(para.parameters, {signal={type = "fluid", name = "crude-oil"}, count = combinator.flow, index = 2})
-    table.insert(para.parameters, {signal={type = "item", name = "pumpjack"}, count = #combinator.oilWells, index = 3})
+    table.insert(para.parameters, {signal={type = "virtual", name = "signal-C"}, count = #combinator.oilWells, index = 3})
+    if combinator.pumped and combinator.pumped > 0 then
+      combinator.pumped = math.ceil(combinator.pumped)
+      table.insert(para.parameters, {signal={type = "item", name = "pumpjack"}, count = combinator.pumped, index = 4})
+    end
   end
   ent.set_circuit_condition(1, para)
 end
@@ -107,6 +143,61 @@ end
 function updateValues()
   local status, err = pcall(function()
     for k, combinator in pairs(global.combinators) do
+      combinator.amount = 0
+      if combinator.entity and combinator.entity.valid then
+        for i=#combinator.oreDeposits,1,-1 do
+          local deposit = combinator.oreDeposits[i]
+          if deposit and deposit.valid and deposit.amount > 0 then
+            combinator.amount = combinator.amount + deposit.amount
+          else
+            table.remove(combinator.oreDeposits, i)
+          end
+        end
+        if combinator.oilWells then
+          combinator.flow = 0
+          combinator.pumped = 0
+          for i=#combinator.oilWells,1,-1 do
+            local deposit = combinator.oilWells[i]
+            if deposit and deposit.valid and deposit.amount > 0 then
+              local wpos = {x=math.floor(deposit.position.x)+0.5,y=math.floor(deposit.position.y)+0.5}
+              if combinator.pumpjacks then
+                local jack = combinator.pumpjacks[wpos.x..":"..wpos.y]
+                if jack and jack.entity.valid then
+                  combinator.pumped = combinator.pumped + (deposit.amount * jack.speed)
+                end
+              end
+              combinator.flow = combinator.flow + deposit.amount
+            else
+              table.remove(combinator.oilWells, i)
+            end
+          end
+          combinator.flow = combinator.flow / 750
+          combinator.pumped = combinator.pumped / 750
+        end
+        setValue(combinator)
+      end
+    end
+  end)
+  if not status then
+    debugDump(err, true)
+  end
+end
+
+function updateValues2(index)
+  local status, err = pcall(function()
+    if not global.ticklist[index] then
+      return
+    end
+    --debugDump(game.tick.."-"..index.."#"..#global.ticklist[index],true)
+    if not global.debug then global.debug = {} end
+    if #global.debug < 500 then
+      table.insert(global.debug, game.tick..":"..index)
+    else
+      global.debug = {}
+    end
+
+    for k, combinator in pairs(global.ticklist[index]) do
+      --debugDump(game.tick.." "..k,true)
       combinator.amount = 0
       if combinator.entity and combinator.entity.valid then
         for i=#combinator.oreDeposits,1,-1 do
@@ -138,13 +229,72 @@ function updateValues()
   end
 end
 
+function on_built_entity(event)
+  local status, err = pcall(function()
+    local ent = event.created_entity
+    if ent.name == "resource-combinator-proxy" or ent.name == "resource-combinator" then
+      createCombinator(event)
+    elseif ent.name == "pumpjack" then
+      addPumpjack(event)
+    end
+  end)
+  if not status then
+    debugDump(err, true)
+  end
+end
+
+function addPumpjack(event)
+  local ent = event.created_entity
+  local pos = ent.position
+  for k, comb in pairs(global.combinators) do
+    if comb.flow and comb.flow > 0 then
+      comb.pumped = comb.pumped or 0
+      for _, well in pairs(comb.oilWells) do
+        local wpos = {x=math.floor(well.position.x)+0.5,y=math.floor(well.position.y)+0.5}
+        if wpos.x == pos.x and wpos.y == pos.y then
+          comb.pumpjacks = comb.pumpjacks or {}
+          comb.pumpjacks[key(ent)] = {entity = ent, well = well}
+          comb.pumped = comb.pumped + well.amount/750
+          return
+        end
+      end
+    end
+  end
+end
+
 function createCombinator(event)
+  --  debugDump("a",true)
+  --  local status, err = pcall(function()
+  --    if event.created_entity.type == "entity-ghost" and event.created_entity.ghost_prototype.name == "resource-combinator" then
+  --      debugDump("h",true)
+  --      local entity = event.created_entity
+  --      local force = entity.force
+  --      local pos ={x = entity.position.x, y = entity.position.y}
+  --      local surface = entity.surface
+  --      event.created_entity.destroy()
+  --      local new_entity = {
+  --        name = "entity-ghost",
+  --        inner_name = "resource-combinator-proxy",
+  --        position = pos,
+  --        direction = 0,
+  --        force = force
+  --      }
+  --      surface.create_entity(new_entity)
+  --      return
+  --    end
+  --  end)
+  --  if not status then
+  --    debugDump(err, true)
+  --    return
+  --  end
+  --  debugDump("h1",true)
   local status, err = pcall(function()
     if event.created_entity.name == "resource-combinator-proxy" or event.created_entity.name == "resource-combinator" then
       local entity = event.created_entity
       local force = entity.force
       local pos ={x = entity.position.x, y = entity.position.y}
       local surface = entity.surface
+
       if entity.name == "resource-combinator-proxy" then
         entity.destroy()
         entity = surface.create_entity{name = "resource-combinator", position = pos, direction=0, force=force}
@@ -183,6 +333,13 @@ function createCombinator(event)
             overlay.minable = false
             overlay.destructible = false
             table.insert(global.overlayStack[tick], overlay)
+            --find pumpjacks
+            local pos = e.position
+            local range = 0.1
+            local jacks = surface.find_entities_filtered{area = {{pos.x - range, pos.y - range}, {pos.x + range, pos.y + range}}, name="pumpjack"}
+            if #jacks == 1 then
+              addPumpjack({created_entity = jacks[1]})
+            end
           end
         end
         global.combinators[k].entity = entity
@@ -190,6 +347,12 @@ function createCombinator(event)
           global.combinators[k].flow = global.combinators[k].flow / 750
         end
         setValue(global.combinators[k])
+        global.ticklist[global.nextIndex] = global.ticklist[global.nextIndex] or {}
+        global.ticklist[global.nextIndex][k] = global.combinators[k]
+        global.nextIndex = (global.nextIndex + 1) % 30
+        if global.nextIndex == 0 then
+          global.nextIndex = 1
+        end
       end
     end
   end)
@@ -216,18 +379,30 @@ function addOreField(entity)
   return {oreDeposits = oreDeposit, amount = tmpAmount, resourceType = tmpResType}
 end
 
-function removeCombinator(event)
+function on_premined_entity(event)
   if event.entity.name == "resource-combinator" then
     global.combinators[key(event.entity)] = nil
+  elseif event.entity.name == "pumpjack" then
+    local k = key(event.entity)
+    for _, comb in pairs(global.combinators) do
+      if comb.pumpjacks and comb.pumpjacks[k] then
+        comb.pumpjacks[k] = nil
+        return
+      end
+    end
   end
 end
 
-game.on_event(defines.events.on_built_entity, createCombinator)
-game.on_event(defines.events.on_robot_built_entity, createCombinator)
+function removeCombinator(event)
 
-game.on_event(defines.events.on_entity_died, removeCombinator)
-game.on_event(defines.events.on_preplayer_mined_item, removeCombinator)
-game.on_event(defines.events.on_robot_pre_mined, removeCombinator)
+end
+
+game.on_event(defines.events.on_built_entity, on_built_entity)
+game.on_event(defines.events.on_robot_built_entity, on_built_entity)
+
+game.on_event(defines.events.on_entity_died, on_premined_entity)
+game.on_event(defines.events.on_preplayer_mined_item, on_premined_entity)
+game.on_event(defines.events.on_robot_pre_mined, on_premined_entity)
 
 game.on_event(defines.events.on_tick, function(event)
   if global.overlayStack and global.overlayStack[event.tick] then
@@ -239,9 +414,31 @@ game.on_event(defines.events.on_tick, function(event)
     end
     global.overlayStack[event.tick] = nil
   end
-  if game.tick % global.updateFreq == 11 then
+  local range = game.tick % global.updateFreq
+  if range == 11 then
     updateValues()
   end
+
+  if game.tick % 300 == 12 then
+    for _, comb in pairs(global.combinators) do
+      if comb.pumpjacks then
+        for _1, jack in pairs(comb.pumpjacks) do
+          jack.speed = 1
+          local modules = jack.entity.get_inventory(defines.inventory.mining_drill_modules).get_contents()
+          for module, c in pairs(modules) do
+            --debugDump({module,c},true)
+            local prototype = game.item_prototypes[module]
+            if module and prototype.module_effects and prototype.module_effects["speed"] then
+              jack.speed = jack.speed + prototype.module_effects["speed"].bonus*c
+            end
+          end
+        end
+      end
+    end
+  end
+  --  if range >= 11 and range < 40 then
+  --    updateValues2(range-10)
+  --  end
   if game.tick % 600 == 13 then
     for i, overlays in pairs(global.overlayStack) do
       if i < event.tick then

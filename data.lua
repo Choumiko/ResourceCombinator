@@ -30,6 +30,7 @@ data:extend({item, ent})
 
 local proxy_i = copyPrototype("item", "small-electric-pole", "resource-combinator-proxy")
 proxy_i.icon = item.icon
+proxy_i.subgroup = "circuit-network"
 proxy_i.order = item.order
 
 local proxy_e = copyPrototype("constant-combinator", "resource-combinator", "resource-combinator-proxy")
