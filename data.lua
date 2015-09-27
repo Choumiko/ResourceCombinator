@@ -55,7 +55,12 @@ data:extend({recipe, proxy_i, proxy_e})
 local proxy_r = copyPrototype("recipe", "resource-combinator", "resource-combinator-proxy")
 proxy_r.hidden = false
 
-data:extend({proxy_r})
+local signalOil = copyPrototype("virtual-signal", "signal-1", "signal-oil-speed")
+signalOil.icon = "__ResourceCombinator__/graphics/oil-signal.png"
+signalOil.subgroup = "virtual-signal"
+signalOil.order = "f[resourcecombinator]-a[oilsignal]"
+
+data:extend({proxy_r, signalOil})
 
 table.insert(data.raw.technology["circuit-network"].effects, {type="unlock-recipe", recipe="resource-combinator-proxy"})
 

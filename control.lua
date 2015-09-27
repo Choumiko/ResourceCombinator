@@ -5,6 +5,8 @@ function initGlob()
 
   -- update every X ticks (1s = 60 ticks)
   global.updateFreq = 60
+  -- output as oil per x sec
+  global.oilPer = 60
 
   if global.combinators == nil then
     global.combinators = {}
@@ -19,6 +21,7 @@ function initGlob()
   if global.updateFreq < 30 then
     global.updateFreq = 30
   end
+  global.oilPer = 1/7500* global.oilPer
 
   if global.version < "0.0.2" then
     --    global.ticklist = {}
@@ -44,6 +47,29 @@ function initGlob()
       end
     end
     global.version = "0.0.2"
+  end
+
+  if global.version < "0.0.3" then
+    for k, comb in pairs(global.combinators) do
+      comb.oilWells = comb.oilWells or {}
+      comb.jacks = 0
+      if comb.pumpjacks then
+        for _, jack in pairs(comb.pumpjacks) do
+          jack.speed = 1
+          comb.jacks = comb.jacks + 1
+          local modules = jack.entity.get_inventory(defines.inventory.mining_drill_modules).get_contents()
+          for module, c in pairs(modules) do
+            --debugDump({module,c},true)
+            local prototype = game.item_prototypes[module]
+            if module and prototype.module_effects and prototype.module_effects["speed"] then
+              jack.speed = jack.speed + prototype.module_effects["speed"].bonus*c
+            end
+          end
+        end
+      else
+        comb.pumpjacks = {}
+      end
+    end
   end
 
   global.version = "0.0.2"
@@ -126,15 +152,16 @@ end
 
 function setValue(combinator)
   local ent = combinator.entity
+  local oilPer = global.oilPer
   local para = {parameters={
     {signal={type = "item", name = combinator.resourceType}, count = combinator.amount, index = 1}}}
   if combinator.flow and combinator.flow > 0 then
-    combinator.flow = math.ceil(combinator.flow)
-    table.insert(para.parameters, {signal={type = "fluid", name = "crude-oil"}, count = combinator.flow, index = 2})
-    table.insert(para.parameters, {signal={type = "virtual", name = "signal-C"}, count = #combinator.oilWells, index = 3})
+    local flow = math.ceil(combinator.flow * oilPer)
+    table.insert(para.parameters, {signal={type = "fluid", name = "crude-oil"}, count = flow, index = 2})
+    table.insert(para.parameters, {signal={type = "item", name = "pumpjack"}, count = combinator.jacks, index = 3})
     if combinator.pumped and combinator.pumped > 0 then
-      combinator.pumped = math.ceil(combinator.pumped)
-      table.insert(para.parameters, {signal={type = "item", name = "pumpjack"}, count = combinator.pumped, index = 4})
+      local pumped = math.ceil(combinator.pumped * oilPer)
+      table.insert(para.parameters, {signal={type = "virtual", name = "signal-oil-speed"}, count = pumped, index = 4})
     end
   end
   ent.set_circuit_condition(1, para)
@@ -145,34 +172,28 @@ function updateValues()
     for k, combinator in pairs(global.combinators) do
       combinator.amount = 0
       if combinator.entity and combinator.entity.valid then
-        for i=#combinator.oreDeposits,1,-1 do
-          local deposit = combinator.oreDeposits[i]
+        --for i=#combinator.oreDeposits,1,-1 do
+        for i, deposit in pairs(combinator.oreDeposits) do
+          --local deposit = combinator.oreDeposits[i]
           if deposit and deposit.valid and deposit.amount > 0 then
             combinator.amount = combinator.amount + deposit.amount
           else
-            table.remove(combinator.oreDeposits, i)
+            --table.remove(combinator.oreDeposits, i)
+            combinator.oreDeposits[i] = nil
           end
         end
-        if combinator.oilWells then
-          combinator.flow = 0
-          combinator.pumped = 0
-          for i=#combinator.oilWells,1,-1 do
-            local deposit = combinator.oilWells[i]
-            if deposit and deposit.valid and deposit.amount > 0 then
-              local wpos = {x=math.floor(deposit.position.x)+0.5,y=math.floor(deposit.position.y)+0.5}
-              if combinator.pumpjacks then
-                local jack = combinator.pumpjacks[wpos.x..":"..wpos.y]
-                if jack and jack.entity.valid then
-                  combinator.pumped = combinator.pumped + (deposit.amount * jack.speed)
-                end
-              end
-              combinator.flow = combinator.flow + deposit.amount
+        combinator.flow = 0
+        combinator.pumped = 0
+        if combinator.pumpjacks then
+          for k, jack in pairs(combinator.pumpjacks) do
+            if jack.entity and jack.entity.valid and jack.well and jack.well.valid then
+              local amount = jack.well.amount
+              combinator.pumped = combinator.pumped + (amount * jack.speed)
+              combinator.flow = combinator.flow + amount
             else
-              table.remove(combinator.oilWells, i)
+              combinator.pumpjacks[k] = nil
             end
           end
-          combinator.flow = combinator.flow / 750
-          combinator.pumped = combinator.pumped / 750
         end
         setValue(combinator)
       end
@@ -247,19 +268,31 @@ function addPumpjack(event)
   local ent = event.created_entity
   local pos = ent.position
   for k, comb in pairs(global.combinators) do
-    if comb.flow and comb.flow > 0 then
-      comb.pumped = comb.pumped or 0
+    if comb.oilWells then
       for _, well in pairs(comb.oilWells) do
         local wpos = {x=math.floor(well.position.x)+0.5,y=math.floor(well.position.y)+0.5}
         if wpos.x == pos.x and wpos.y == pos.y then
-          comb.pumpjacks = comb.pumpjacks or {}
-          comb.pumpjacks[key(ent)] = {entity = ent, well = well}
-          comb.pumped = comb.pumped + well.amount/750
+          addPumpjackToCombinator(comb, ent, well)
           return
         end
       end
     end
   end
+end
+
+function addPumpjackToCombinator(comb, jack, well)
+  comb.flow = comb.flow or 0
+  comb.pumped = comb.pumped or 0
+  comb.jacks = comb.jacks or 0
+  local speed = 1
+  comb.pumpjacks = comb.pumpjacks or {}
+  if comb.pumpjacks[key(jack)] and comb.jacks > 0 then
+    comb.jacks = comb.jacks - 1
+  end
+  comb.pumpjacks[key(jack)] = {entity = jack, well = well, speed = speed}
+  comb.jacks = comb.jacks + 1
+  comb.pumped = comb.pumped + (well.amount*speed)
+  comb.flow = comb.flow + well.amount
 end
 
 function createCombinator(event)
@@ -308,7 +341,7 @@ function createCombinator(event)
         return
       end
       local k = key(entity)
-      global.combinators[k] = {oreDeposits = {}, amount = 0, resourceType = "", flow = 0, oilWells = {}}
+      global.combinators[k] = {oreDeposits = {}, amount = 0, resourceType = "", flow = 0, oilWells = {}, pumped = 0, jacks = 0, pumpjacks = {}}
       if (#ent > 0 or #ent2 > 0) then
         if #ent == 0 then
           ent = ent2
@@ -328,31 +361,28 @@ function createCombinator(event)
         for i,e in pairs(ent2) do
           if e.prototype.resource_category == "basic-fluid" and e.name == "crude-oil" then
             table.insert(global.combinators[k].oilWells, e)
-            global.combinators[k].flow = global.combinators[k].flow + e.amount
             local overlay = surface.create_entity{name="rm_overlay", position = e.position}
             overlay.minable = false
             overlay.destructible = false
             table.insert(global.overlayStack[tick], overlay)
             --find pumpjacks
             local pos = e.position
-            local range = 0.1
+            local range = 0.2
             local jacks = surface.find_entities_filtered{area = {{pos.x - range, pos.y - range}, {pos.x + range, pos.y + range}}, name="pumpjack"}
             if #jacks == 1 then
-              addPumpjack({created_entity = jacks[1]})
+              global.combinators[k].flow = global.combinators[k].flow + e.amount
+              addPumpjackToCombinator(global.combinators[k], jacks[1], e)
             end
           end
         end
         global.combinators[k].entity = entity
-        if global.combinators[k].flow > 0 then
-          global.combinators[k].flow = global.combinators[k].flow / 750
-        end
         setValue(global.combinators[k])
-        global.ticklist[global.nextIndex] = global.ticklist[global.nextIndex] or {}
-        global.ticklist[global.nextIndex][k] = global.combinators[k]
-        global.nextIndex = (global.nextIndex + 1) % 30
-        if global.nextIndex == 0 then
-          global.nextIndex = 1
-        end
+        --        global.ticklist[global.nextIndex] = global.ticklist[global.nextIndex] or {}
+        --        global.ticklist[global.nextIndex][k] = global.combinators[k]
+        --        global.nextIndex = (global.nextIndex + 1) % 30
+        --        if global.nextIndex == 0 then
+        --          global.nextIndex = 1
+        --        end
       end
     end
   end)
@@ -387,14 +417,11 @@ function on_premined_entity(event)
     for _, comb in pairs(global.combinators) do
       if comb.pumpjacks and comb.pumpjacks[k] then
         comb.pumpjacks[k] = nil
+        comb.jacks = comb.jacks - 1
         return
       end
     end
   end
-end
-
-function removeCombinator(event)
-
 end
 
 game.on_event(defines.events.on_built_entity, on_built_entity)
