@@ -11,7 +11,8 @@ function initGlob()
   if global.combinators == nil then
     global.combinators = {}
   end
-
+  global.version = global.version or "0.0.1"
+  
   if global.overlayStack == nil then
     global.overlayStack = {}
   end
