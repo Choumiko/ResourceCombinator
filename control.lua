@@ -70,9 +70,10 @@ function initGlob()
         comb.pumpjacks = {}
       end
     end
+    global.version = "0.0.3"
   end
 
-  global.version = "0.0.2"
+  global.version = "0.0.3"
 end
 
 game.on_init(function()
