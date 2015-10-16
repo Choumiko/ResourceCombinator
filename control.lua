@@ -12,7 +12,7 @@ function initGlob()
     global.combinators = {}
   end
   global.version = global.version or "0.0.1"
-  
+
   if global.overlayStack == nil then
     global.overlayStack = {}
   end
@@ -24,66 +24,29 @@ function initGlob()
   end
   global.oilPer = 1/7500* global.oilPer
 
-  if global.version < "0.0.2" then
-    --    global.ticklist = {}
-    --    global.nextIndex = 1
-    --    for k, comb in pairs(global.combinators) do
-    --      global.ticklist[global.nextIndex] = global.ticklist[global.nextIndex] or {}
-    --      global.ticklist[global.nextIndex][k] = global.combinators[k]
-    --      global.nextIndex = (global.nextIndex + 1) % 30
-    --      if global.nextIndex == 0 then
-    --        global.nextIndex = 1
-    --      end
-    --    end
-    for k, comb in pairs(global.combinators) do
-      if comb.oilWells then
-        for _, well in pairs(comb.oilWells) do
-          local pos = well.position
-          local range = 0.25
-          local jacks = well.surface.find_entities_filtered{area = {{pos.x - range, pos.y - range}, {pos.x + range, pos.y + range}}, name="pumpjack"}
-          if #jacks == 1 then
-            addPumpjack({created_entity = jacks[1]})
-          end
-        end
-      end
-    end
-    global.version = "0.0.2"
-  end
-
-  if global.version < "0.0.3" then
-    for k, comb in pairs(global.combinators) do
-      comb.oilWells = comb.oilWells or {}
-      comb.jacks = 0
-      if comb.pumpjacks then
-        for _, jack in pairs(comb.pumpjacks) do
-          jack.speed = 1
-          comb.jacks = comb.jacks + 1
-          local modules = jack.entity.get_inventory(defines.inventory.mining_drill_modules).get_contents()
-          for module, c in pairs(modules) do
-            --debugDump({module,c},true)
-            local prototype = game.item_prototypes[module]
-            if module and prototype.module_effects and prototype.module_effects["speed"] then
-              jack.speed = jack.speed + prototype.module_effects["speed"].bonus*c
-            end
-          end
-        end
-      else
-        comb.pumpjacks = {}
-      end
-    end
-    global.version = "0.0.3"
-  end
-
   global.version = "0.0.3"
 end
 
-game.on_init(function()
+function on_configuration_changed(data)
+  local oldVersion = false
+  local newVersion = false
+  if data.mod_changes.ResourceCombinator and data.mod_changes.ResourceCombinator.old_version then
+    oldVersion = data.mod_changes.ResourceCombinator.old_version
+    newVersion = data.mod_changes.ResourceCombinator.new_version
+  else
+    return
+  end
+end
+
+script.on_init(function()
   initGlob()
 end)
 
-game.on_load(function()
+script.on_load(function()
   initGlob()
 end)
+
+script.on_configuration_changed(on_configuration_changed)
 
 function key(entity)
   return entity.position.x..":"..entity.position.y
@@ -426,14 +389,14 @@ function on_premined_entity(event)
   end
 end
 
-game.on_event(defines.events.on_built_entity, on_built_entity)
-game.on_event(defines.events.on_robot_built_entity, on_built_entity)
+script.on_event(defines.events.on_built_entity, on_built_entity)
+script.on_event(defines.events.on_robot_built_entity, on_built_entity)
 
-game.on_event(defines.events.on_entity_died, on_premined_entity)
-game.on_event(defines.events.on_preplayer_mined_item, on_premined_entity)
-game.on_event(defines.events.on_robot_pre_mined, on_premined_entity)
+script.on_event(defines.events.on_entity_died, on_premined_entity)
+script.on_event(defines.events.on_preplayer_mined_item, on_premined_entity)
+script.on_event(defines.events.on_robot_pre_mined, on_premined_entity)
 
-game.on_event(defines.events.on_tick, function(event)
+script.on_event(defines.events.on_tick, function(event)
   if global.overlayStack and global.overlayStack[event.tick] then
     local tick = event.tick
     for _, overlay in pairs(global.overlayStack[tick]) do
@@ -499,7 +462,7 @@ end
 function saveVar(var, name)
   local var = var or global
   local n = name or ""
-  game.makefile("resCom"..n..".lua", serpent.block(var, {name="glob"}))
+  game.write_file("resCom"..n..".lua", serpent.block(var, {name="glob"}))
 end
 
 remote.add_interface("resource-combinator",
